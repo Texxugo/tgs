@@ -69,8 +69,37 @@ function inferRequestedType({ requestedType, entryTime, exitTime }) {
   return null;
 }
 
+function extractClientIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  const forwardedIp = Array.isArray(forwarded)
+    ? forwarded[0]
+    : typeof forwarded === "string"
+      ? forwarded.split(",")[0]
+      : null;
+
+  return normalizeIp(
+    forwardedIp ||
+      req.ip ||
+      req.socket?.remoteAddress ||
+      req.connection?.remoteAddress ||
+      null,
+  );
+}
+
+function normalizeIp(value) {
+  if (!value) return null;
+
+  const normalized = String(value).trim();
+  if (!normalized) return null;
+
+  return normalized.startsWith("::ffff:")
+    ? normalized.slice("::ffff:".length)
+    : normalized;
+}
+
 module.exports = {
   buildForgottenOccurredAt,
+  extractClientIp,
   inferRequestedType,
   parseSignatureBase64,
   readSignatureAsDataUrl,
