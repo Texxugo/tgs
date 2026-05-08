@@ -1,9 +1,10 @@
-﻿<!doctype html>
+﻿-- Active: 1777612776367@@127.0.0.1@5432@postgres
+<!doctype html>
 <html lang="pt-br">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sistema de Ponto - Teste</title>
+    <title>Sistema de Ponto</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -21,11 +22,22 @@
         <div class="grid">
           <label>
             CPF
-            <input id="loginCpf" type="text" placeholder="00000000000" />
-          </label>
+            <input
+              id="loginCpf"
+              type="text"
+              inputmode="numeric"
+              autocomplete="username"
+              placeholder="00000000000"
+            />
+          </label>  
           <label>
             Senha
-            <input id="loginPassword" type="password" placeholder="123456" />
+            <input
+              id="loginPassword"
+              type="password"
+              autocomplete="current-password"
+              placeholder="123456"
+            />
           </label>
           <button id="btnLogin">Entrar</button>
         </div>
@@ -33,8 +45,8 @@
           <div>
             <strong>Status:</strong> <span id="authStatus">Deslogado</span>
           </div>
-          <button id="btnLogout" class="secondary">Sair</button>
         </div>
+        <div id="loginOut" class="out" aria-live="polite" hidden></div>
       </div>
     </section>
 
@@ -42,29 +54,75 @@
       <aside class="sidebar">
         <div class="brand">
           <div class="brandTitle">Sistema de Ponto</div>
-          <div class="brandSub">Minimal - Monochrome</div>
+          <div class="brandSub">Minimal - Verde</div>
         </div>
 
         <nav class="nav">
-          <button class="navItem active" data-view="view-dashboard">
-            Dashboard
+          <button class="navItem active" data-view="view-ponto">
+            Controle de Escala
           </button>
-          <button class="navItem" data-view="view-ponto">Bater ponto</button>
-          <button class="navItem" data-view="view-consultas">Consultas</button>
 
-          <div class="navDivider"></div>
-          <div class="navLabel">Admin</div>
+          <div class="navDivider" data-admin-only="true" hidden></div>
+          <div class="navLabel" data-admin-only="true" hidden>Admin</div>
 
-          <button class="navItem" data-view="view-admin-users">Usuários</button>
-          <button class="navItem" data-view="view-admin-alerts">Alertas</button>
+          <button
+            class="navItem"
+            data-view="view-consultas"
+            data-admin-only="true"
+            hidden
+          >
+            Consultas
+          </button>
+          <button
+            class="navItem"
+            data-view="view-admin-occurrences"
+            data-admin-only="true"
+            hidden
+          >
+            Ocorrências
+          </button>
+          <button
+            class="navItem"
+            data-view="view-admin-forgotten"
+            data-admin-only="true"
+            hidden
+          >
+            Esquecimentos
+          </button>
+          <button
+            class="navItem"
+            data-view="view-admin-users"
+            data-admin-only="true"
+            hidden
+          >
+            Usuários
+          </button>
+          <button
+            class="navItem"
+            data-view="view-admin-cadastros"
+            data-admin-only="true"
+            hidden
+          >
+            Cadastros
+          </button>
+          <button
+            class="navItem"
+            data-view="view-admin-alerts"
+            data-admin-only="true"
+            hidden
+          >
+            Alertas
+          </button>
         </nav>
       </aside>
 
       <main class="main">
         <header class="topbar">
           <div>
-            <div class="topTitle" id="topTitle">Dashboard</div>
-            <div class="topSub" id="topSub">Visão geral do sistema</div>
+            <div class="topTitle" id="topTitle">Controle de Escala</div>
+            <div class="topSub" id="topSub">
+              Registro de presença e ausência com geolocalização
+            </div>
           </div>
           <div class="topActions">
             <button
@@ -80,23 +138,11 @@
         </header>
 
         <div class="content">
-          <section class="view active" id="view-dashboard">
-            <header class="header">
-              <h1>Sistema de Ponto</h1>
-              <p>Ambiente de Admin / Ponto / Consultas / Alertas</p>
-            </header>
-
+          <section class="view active" id="view-ponto">
+            <!-- Controle de Escala -->
             <section class="card">
-              <h2>Bem-vindo</h2>
-              <p class="muted">Pagina em desenvolvimento</p>
-            </section>
-          </section>
-
-          <section class="view" id="view-ponto">
-            <!-- Bater ponto -->
-            <section class="card">
-              <h2>Bater ponto</h2>
-              <p class="muted">Requer geolocalização no momento da batida.</p>
+              <h2>Controle de Escala</h2>
+              <p class="muted">Requer geolocalização no momento da atualização.</p>
 
               <div class="row between">
                 <div>
@@ -105,47 +151,24 @@
                 </div>
 
                 <div class="right">
-                  <div>
-                    <strong>Status:</strong> <span id="journeyStatus">-</span>
+                  <div class="statusPanel">
+                    <span class="statusLabel">Status atual</span>
+                    <strong class="statusValue" id="journeyStatus">Escala: -</strong>
+                    <div class="muted compact" id="journeyMeta">
+                      Último registro: -
+                    </div>
                   </div>
                   <button id="btnRefreshStatus" class="secondary">
-                    Atualizar status
+                    Atualizar escala
                   </button>
                 </div>
-              </div>
-              <div class="row">
-                <label>
-                  Ordem de serviço (OS)
-                  <select id="soSelect">
-                    <option value="">Automático</option>
-                  </select>
-                </label>
-
-                <button id="btnLoadSO" class="secondary">
-                  Carregar OS ativas
-                </button>
-              </div>
-
-              <div class="muted" id="soOut">OS: -</div>
-              <div class="muted" id="mySoInfo">Minhas OS: -</div>
-
-              <div class="tableWrap">
-                <table class="table" id="mySoTable">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Titulo</th>
-                      <th>Status</th>
-                      <th>Inicio</th>
-                      <th>Duracao</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
               </div>
 
               <div class="row">
                 <button id="btnClock" disabled>Carregando...</button>
+                <div class="muted compact" id="clockActionHint">
+                  Aguarde a verificação do status atual.
+                </div>
               </div>
 
               <div class="row">
@@ -154,14 +177,18 @@
                 </button>
                 <div class="muted" id="geoOut">Localização: -</div>
               </div>
+              <div id="clockOut" class="out" aria-live="polite" hidden></div>
             </section>
           </section>
 
           <section class="view" id="view-consultas">
             <!-- Consulta de Registros -->
             <section class="card">
-              <h2>Consulta de Registros</h2>
-              <p class="muted">Pagina de consulta de registros</p>
+              <h2>Consultas Administrativas</h2>
+              <p class="muted">
+                Consulte registros por funcionário ou visualize o histórico
+                completo da equipe.
+              </p>
 
               <div class="row">
                 <label>
@@ -176,11 +203,9 @@
               </div>
 
               <div class="row">
-                <button id="btnMyEntries">Meus registros</button>
-
-                <div class="row" style="margin: 0">
+                <div id="consultationAdminControls" class="row" style="margin: 0">
                   <label>
-                    Admin: user_id
+                    Funcionário
                     <input
                       id="filterUserId"
                       type="number"
@@ -202,6 +227,7 @@
                 <div class="muted" id="entriesInfo">-</div>
                 <button id="btnClearEntries" class="secondary">Limpar</button>
               </div>
+              <div id="entriesOut" class="out" aria-live="polite" hidden></div>
 
               <div class="tableWrap">
                 <table class="table" id="entriesTable">
@@ -213,6 +239,7 @@
                       <th>Data/Hora</th>
                       <th>Lat</th>
                       <th>Lng</th>
+                      <th>Endereço</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -254,6 +281,7 @@
 
                 <button id="btnCreateUser">Cadastrar</button>
               </div>
+              <div id="adminOut" class="out" aria-live="polite" hidden></div>
             </section>
 
             <!-- Admin: Ativar/Desativar usuário -->
@@ -289,6 +317,7 @@
               <div class="row between">
                 <div class="muted" id="usersInfo">-</div>
               </div>
+              <div id="toggleOut" class="out" aria-live="polite" hidden></div>
 
               <div class="tableWrap">
                 <table class="table" id="usersTable">
@@ -307,31 +336,47 @@
               </div>
             </section>
 
+          </section>
+
+          <section class="view" id="view-admin-occurrences">
             <section class="card">
-              <h2>Admin: Ordens de serviço</h2>
-              <p class="muted">Criar, listar e atribuir OS. Requer ADMIN.</p>
+              <h2>Admin: Ocorrências</h2>
+              <p class="muted">
+                Selecione o local, o tipo de ocorrência e os funcionários para
+                registrar a cobertura.
+              </p>
 
               <div class="grid">
                 <label>
-                  Título
-                  <input
-                    id="soTitle"
-                    type="text"
-                    placeholder="Ex.: Instalação de internet"
-                  />
+                  Local
+                  <select id="occurrenceLocationSelect">
+                    <option value="">Selecione um local</option>
+                  </select>
                 </label>
 
                 <label>
-                  Local (texto)
-                  <input
-                    id="soLocation"
-                    type="text"
-                    placeholder="Ex.: Rua X, 123 - Centro"
-                  />
+                  Tipo de ocorrência
+                  <select id="occurrenceTypeSelect">
+                    <option value="">Selecione um tipo</option>
+                  </select>
                 </label>
 
                 <label>
-                  Início previsto
+                  Funcionário substituído
+                  <select id="replacedUserSelect">
+                    <option value="">Selecione um funcionário</option>
+                  </select>
+                </label>
+
+                <label>
+                  Funcionário cobertura
+                  <select id="coverUserSelect">
+                    <option value="">Selecione um funcionário</option>
+                  </select>
+                </label>
+
+                <label>
+                  Data prevista
                   <input id="soExpectedStart" type="datetime-local" />
                 </label>
 
@@ -345,53 +390,26 @@
                   />
                 </label>
 
-                <label style="grid-column: 1 / -1">
-                  Descrição
-                  <input
-                    id="soDescription"
-                    type="text"
-                    placeholder="Detalhes do serviço..."
-                  />
-                </label>
-
-                <button id="btnCreateSO">Criar OS</button>
-                <button id="btnListSO" class="secondary">Listar OS</button>
+                <button id="btnCreateSO">Registrar ocorrência</button>
+                <button id="btnListSO" class="secondary">
+                  Listar ocorrências
+                </button>
               </div>
 
-              <div class="row">
-                <label>
-                  Atribuir: OS ID
-                  <input
-                    id="assignSoId"
-                    type="number"
-                    min="1"
-                    placeholder="ex: 10"
-                  />
-                </label>
-
-                <label>
-                  user_id
-                  <input
-                    id="assignUserId"
-                    type="number"
-                    min="1"
-                    placeholder="ex: 2"
-                  />
-                </label>
-
-                <button id="btnAssignSO">Atribuir OS</button>
-              </div>
+              <div id="soAdminOut" class="out" aria-live="polite" hidden></div>
 
               <div class="tableWrap">
                 <table class="table" id="soTable">
                   <thead>
                     <tr>
                       <th>ID</th>
-                      <th>Titulo</th>
+                      <th>Local</th>
+                      <th>Tipo</th>
+                      <th>Substituído</th>
+                      <th>Cobertura</th>
                       <th>Status</th>
                       <th>Inicio</th>
                       <th>Duração</th>
-                      <th>Local</th>
                       <th>Criada por</th>
                       <th>Ação</th>
                     </tr>
@@ -401,6 +419,228 @@
               </div>
 
               <!-- <pre id="soAdminJson" class="out"></pre> -->
+            </section>
+          </section>
+
+          <section class="view" id="view-admin-forgotten">
+            <section class="card">
+              <h2>Admin: Esquecimento de batida</h2>
+              <p class="muted">
+                Consulte, analise e aprove ou rejeite solicitações enviadas pelo app mobile.
+              </p>
+
+              <div class="grid">
+                <label>
+                  Status
+                  <select id="forgottenStatusFilter">
+                    <option value="">Todos</option>
+                    <option value="pending">Pendente</option>
+                    <option value="approved">Aprovado</option>
+                    <option value="rejected">Rejeitado</option>
+                  </select>
+                </label>
+
+                <label>
+                  Colaborador
+                  <input
+                    id="forgottenCollaboratorFilter"
+                    type="text"
+                    placeholder="Nome, CPF ou ID"
+                  />
+                </label>
+
+                <label>
+                  Data esquecida inicial
+                  <input id="forgottenDateFrom" type="date" />
+                </label>
+
+                <label>
+                  Data esquecida final
+                  <input id="forgottenDateTo" type="date" />
+                </label>
+
+                <label>
+                  Criado em inicial
+                  <input id="forgottenCreatedFrom" type="date" />
+                </label>
+
+                <label>
+                  Criado em final
+                  <input id="forgottenCreatedTo" type="date" />
+                </label>
+              </div>
+
+              <div class="row">
+                <button id="btnLoadForgottenRequests">Buscar solicitações</button>
+                <button id="btnClearForgottenFilters" class="secondary">Limpar filtros</button>
+              </div>
+
+              <div class="row between">
+                <div class="muted" id="forgottenInfo">-</div>
+              </div>
+              <div id="forgottenOut" class="out" aria-live="polite" hidden></div>
+
+              <div class="tableWrap">
+                <table class="table" id="forgottenTable">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Colaborador</th>
+                      <th>Data esquecida</th>
+                      <th>Entrada</th>
+                      <th>Saída</th>
+                      <th>Motivo</th>
+                      <th>Status</th>
+                      <th>Enviado em</th>
+                      <th>Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="card">
+              <h2>Detalhe da solicitação</h2>
+              <p class="muted">
+                Selecione um item da lista para visualizar assinatura e registrar a análise.
+              </p>
+
+              <div id="forgottenDetailEmpty" class="out">
+                Nenhuma solicitação selecionada.
+              </div>
+
+              <div id="forgottenDetailContent" hidden>
+                <div class="detailGrid">
+                  <div class="detailItem">
+                    <strong>Colaborador</strong>
+                    <span id="forgottenDetailEmployeeName">-</span>
+                  </div>
+                  <div class="detailItem">
+                    <strong>Data esquecida</strong>
+                    <span id="forgottenDetailDate">-</span>
+                  </div>
+                  <div class="detailItem">
+                    <strong>Entrada</strong>
+                    <span id="forgottenDetailEntry">-</span>
+                  </div>
+                  <div class="detailItem">
+                    <strong>Saída</strong>
+                    <span id="forgottenDetailExit">-</span>
+                  </div>
+                  <div class="detailItem">
+                    <strong>Status</strong>
+                    <span id="forgottenDetailStatus">-</span>
+                  </div>
+                  <div class="detailItem">
+                    <strong>Assinada em</strong>
+                    <span id="forgottenDetailSignedAt">-</span>
+                  </div>
+                  <div class="detailItem">
+                    <strong>Hash de integridade</strong>
+                    <span id="forgottenDetailIntegrityHash">-</span>
+                  </div>
+                  <div class="detailItem">
+                    <strong>Enviada em</strong>
+                    <span id="forgottenDetailCreatedAt">-</span>
+                  </div>
+                  <div class="detailItem">
+                    <strong>Confirmada pelo colaborador</strong>
+                    <span id="forgottenDetailConfirmed">-</span>
+                  </div>
+                  <div class="detailItem detailItemWide">
+                    <strong>Motivo</strong>
+                    <span id="forgottenDetailReason">-</span>
+                  </div>
+                  <div class="detailItem">
+                    <strong>Posto/Local</strong>
+                    <span id="forgottenDetailWorkplace">-</span>
+                  </div>
+                  <div class="detailItem detailItemWide">
+                    <strong>Observações</strong>
+                    <span id="forgottenDetailNotes">-</span>
+                  </div>
+                  <div class="detailItem detailItemWide">
+                    <strong>Análise anterior</strong>
+                    <span id="forgottenDetailReview">-</span>
+                  </div>
+                </div>
+
+                <div class="signaturePanel">
+                  <strong>Assinatura</strong>
+                  <img id="forgottenSignatureImage" class="signatureImage" alt="Assinatura do colaborador" hidden />
+                  <div id="forgottenSignatureFallback" class="muted compact">
+                    Assinatura indisponível.
+                  </div>
+                </div>
+
+                <div class="row">
+                  <label class="fullWidth">
+                    Observação de análise
+                    <textarea
+                      id="forgottenReviewNotes"
+                      rows="4"
+                      placeholder="Descreva a decisão administrativa"
+                    ></textarea>
+                  </label>
+                </div>
+
+                <div class="row">
+                  <button id="btnApproveForgotten">Aprovar</button>
+                  <button id="btnRejectForgotten" class="secondary">Rejeitar</button>
+                  <button id="btnDownloadForgottenPdf" class="secondary" hidden>
+                    Baixar PDF
+                  </button>
+                </div>
+
+                <div id="forgottenDetailOut" class="out" aria-live="polite" hidden></div>
+              </div>
+            </section>
+          </section>
+
+          <section class="view" id="view-admin-cadastros">
+            <section class="card">
+              <h2>Admin: Cadastros de apoio</h2>
+              <p class="muted">
+                Cadastre e atualize a lista de locais e tipos de ocorrência.
+              </p>
+
+              <div class="grid">
+                <label>
+                  Novo local
+                  <input
+                    id="newLocationName"
+                    type="text"
+                    placeholder="Ex.: Hospital Central"
+                  />
+                </label>
+                <button id="btnCreateLocation">Cadastrar local</button>
+
+                <label>
+                  Novo tipo de ocorrência
+                  <input
+                    id="newOccurrenceTypeName"
+                    type="text"
+                    placeholder="Ex.: Troca de Escala"
+                  />
+                </label>
+                <button id="btnCreateOccurrenceType">
+                  Cadastrar tipo de ocorrência
+                </button>
+              </div>
+
+              <div class="row between">
+                <div class="muted" id="occurrenceMetaInfo">
+                  Locais: 0 | Tipos: 0 | Funcionários: 0
+                </div>
+                <button id="btnRefreshOccurrenceMeta" class="secondary">
+                  Atualizar listas
+                </button>
+              </div>
+
+              <div id="occurrenceConfigOut" class="out" aria-live="polite">
+                Cadastre os itens de apoio para usar no registro de ocorrências.
+              </div>
             </section>
           </section>
 
@@ -463,6 +703,7 @@
               <div class="row between">
                 <div class="muted" id="alertsInfo">-</div>
               </div>
+              <div id="alertsOut" class="out" aria-live="polite" hidden></div>
 
               <div class="tableWrap">
                 <table class="table" id="alertsTable">

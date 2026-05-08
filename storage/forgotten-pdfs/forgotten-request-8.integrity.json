@@ -1,0 +1,29 @@
+{
+  "request_id": 8,
+  "algorithm": "SHA-256",
+  "payload_sha256": "aac8df6f18de79a90ef7233804016d997f46edf695cd2352df69743085957ea4",
+  "pdf_sha256": "f129e02992b1f0519a2601dafe7f48ee5c0bf9d9721c60bab43640bb771f71a3",
+  "signature_sha256": "6c5cf791cb34f48be7fdea647ddd6605c4b8b82c15177d2cb94eef6fee10f410",
+  "generated_at": "2026-05-01T21:45:14.849Z",
+  "payload": {
+    "version": 1,
+    "document_type": "forgotten_request_approval",
+    "request_id": 8,
+    "user_id": 1,
+    "employee_name": "LUIS",
+    "employee_document": "49228221860",
+    "forgotten_date": "2026-05-01",
+    "entry_time": "03:29",
+    "exit_time": null,
+    "reason": "4922822186049228221860",
+    "workplace": "Nao informado.",
+    "notes": "Nao informado.",
+    "confirmed_by_employee": true,
+    "signed_at": "2026-05-01T21:45:08.528Z",
+    "review_note": "Nao informado.",
+    "reviewed_at": "2026-05-01T21:45:14.727Z",
+    "reviewer_name": "LUIS",
+    "reviewed_by": 1,
+    "signature_sha256": "6c5cf791cb34f48be7fdea647ddd6605c4b8b82c15177d2cb94eef6fee10f410"
+  }
+}

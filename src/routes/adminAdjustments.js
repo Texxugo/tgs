@@ -3,6 +3,7 @@ const { z } = require("zod");
 const { db } = require("../db/database");
 const { authRequired } = require("../middlewares/auth");
 const { requireRole } = require("../middlewares/requireRole");
+const { getLatestTimeEntry } = require("../utils/timeEntries");
 
 const router = express.Router();
 
@@ -56,11 +57,7 @@ router.post(
       return res.status(400).json({ error: "Tipo de alerta invalido" });
     }
 
-    const lastResult = await db.query(
-      "SELECT id, type, occurred_at FROM times_entries WHERE user_id = $1 ORDER BY id DESC LIMIT 1",
-      [userId],
-    );
-    const last = lastResult.rows[0];
+    const last = await getLatestTimeEntry(userId);
 
     if (!last || last.type !== "IN") {
       return res.status(409).json({ error: "Nao ha jornada aberta (ultimo registro nao e IN)" });

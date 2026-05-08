@@ -1,8 +1,8 @@
-﻿const { Pool } = require("pg");
+const { Pool } = require("pg");
 
 const ca = process.env.CA_CERT
-  ? process.env.CA_CERT.replace(/\\n/g, "\n")
-  : undefined;
+    ? process.env.CA_CERT.replace(/\\n/g, "\n")
+    : undefined;
 
 const poolConfig = {
   host: process.env.DB_HOST,
@@ -11,8 +11,9 @@ const poolConfig = {
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   ssl: ca ? { rejectUnauthorized: true, ca } : undefined,
-};
+  };
 
+const poolConfig = buildPoolConfig();
 const pool = new Pool(poolConfig);
 
 async function query(text, params = []) {

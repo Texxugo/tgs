@@ -8,6 +8,7 @@ const timeRoutes = require("./routes/time");
 const entriesRoutes = require("./routes/entries");
 const adminAlertsRoutes = require("./routes/adminAlerts");
 const adminAdjustmentsRoutes = require("./routes/adminAdjustments");
+const adminForgottenRequestRoutes = require("./routes/adminForgottenRequests");
 const meRoutes = require("./routes/me");
 const serviceOrderRoutes = require("./routes/serviceOrders");
 const userServiceOrderRoutes = require("./routes/userServiceOrders");
@@ -25,7 +26,7 @@ app.disable("x-powered-by");
 if (trustProxy) app.set("trust proxy", trustProxy);
 
 app.use(cors());
-app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "100kb" }));
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "5mb" }));
 
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -50,6 +51,7 @@ app.use("/entries", entriesRoutes);
 app.use("/admin", adminUserRoutes);
 app.use("/admin", adminAlertsRoutes);
 app.use("/admin", adminAdjustmentsRoutes);
+app.use("/admin", adminForgottenRequestRoutes);
 app.use("/me", meRoutes);
 app.use("/admin/service-orders", serviceOrderRoutes);
 app.use("/service-orders", userServiceOrderRoutes);
