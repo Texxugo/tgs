@@ -413,6 +413,11 @@ function fmtTimeValue(timeText) {
   return timeText ? String(timeText).slice(0, 5) : "-";
 }
 
+function fmtCoordinate(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric.toFixed(6) : "-";
+}
+
 let forgottenRequestsCache = [];
 let selectedForgottenRequestId = null;
 
@@ -473,6 +478,20 @@ function renderForgottenDetail(request) {
   setForgottenDetailValue("forgottenDetailExit", fmtTimeValue(request.exit_time));
   setForgottenDetailValue("forgottenDetailStatus", statusLabel(request.status));
   setForgottenDetailValue("forgottenDetailSignedAt", fmtIsoToBr(request.signed_at));
+  setForgottenDetailValue(
+    "forgottenDetailClientTimestamp",
+    request.client_timestamp_label ||
+      (request.client_timestamp
+        ? `${fmtIsoToBr(request.client_timestamp)}${request.client_timezone ? ` (${request.client_timezone})` : ""}`
+        : "-"),
+  );
+  setForgottenDetailValue(
+    "forgottenDetailGeo",
+    request.client_latitude != null && request.client_longitude != null
+      ? `${fmtCoordinate(request.client_latitude)}, ${fmtCoordinate(request.client_longitude)}`
+      : "-",
+  );
+  setForgottenDetailValue("forgottenDetailIp", request.client_ip || "-");
   setForgottenDetailValue(
     "forgottenDetailIntegrityHash",
     request.integrity_hash

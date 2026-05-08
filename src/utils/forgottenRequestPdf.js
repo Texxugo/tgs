@@ -122,6 +122,9 @@ function drawForgottenApprovalPdf(doc, {
   writeField(doc, "Posto/local", cleanText(request.workplace));
   writeField(doc, "Confirmacao do colaborador", request.confirmed_by_employee ? "Sim" : "Nao");
   writeField(doc, "Assinada em", formatDateTimeBr(signedAt));
+  writeField(doc, "Client timestamp", formatClientTimestamp(request));
+  writeField(doc, "Geolocalizacao", formatGeoLocation(request));
+  writeField(doc, "IP do dispositivo", cleanText(request.client_ip));
   writeField(doc, "Status", "Aprovada");
   writeField(doc, "Aprovada em", formatDateTimeBr(approvalDate));
 
@@ -189,6 +192,22 @@ function buildIntegrityData({ request, reviewerName, signatureAbsolutePath }) {
     notes: cleanText(request.notes),
     confirmed_by_employee: !!request.confirmed_by_employee,
     signed_at: normalizeIsoDateTime(request.signed_at),
+    client_timestamp: normalizeIsoDateTime(request.client_timestamp),
+    client_timestamp_label: cleanNullableText(request.client_timestamp_label),
+    client_timezone: cleanNullableText(request.client_timezone),
+    client_timezone_offset_minutes:
+      Number.isFinite(Number(request.client_timezone_offset_minutes))
+        ? Number(request.client_timezone_offset_minutes)
+        : null,
+    client_latitude:
+      Number.isFinite(Number(request.client_latitude))
+        ? Number(request.client_latitude)
+        : null,
+    client_longitude:
+      Number.isFinite(Number(request.client_longitude))
+        ? Number(request.client_longitude)
+        : null,
+    client_ip: cleanNullableText(request.client_ip),
     review_note: cleanText(request.review_note),
     reviewed_at: normalizeIsoDateTime(request.reviewed_at),
     reviewer_name: reviewer,
@@ -371,6 +390,30 @@ function cleanText(value) {
   return text || "Nao informado.";
 }
 
+function cleanNullableText(value) {
+  const text = value == null ? "" : String(value).trim();
+  return text || null;
+}
+
+function formatClientTimestamp(request) {
+  const label = cleanNullableText(request.client_timestamp_label);
+  if (label) return label;
+
+  const iso = cleanNullableText(request.client_timestamp);
+  if (!iso) return "Nao informado.";
+
+  const timezone = cleanNullableText(request.client_timezone);
+  const formatted = formatDateTimeWithSecondsBr(iso);
+  return timezone ? `${formatted} (${timezone})` : formatted;
+}
+
+function formatGeoLocation(request) {
+  const latitude = toFiniteNumber(request.client_latitude);
+  const longitude = toFiniteNumber(request.client_longitude);
+  if (latitude == null || longitude == null) return "Nao informada.";
+  return `Lat ${latitude.toFixed(6)} | Long ${longitude.toFixed(6)}`;
+}
+
 function getForgottenApprovalPdfRelativePath(requestId) {
   return path
     .join("storage", "forgotten-pdfs", `forgotten-request-${requestId}.pdf`)
@@ -467,9 +510,25 @@ function formatDateTimeBr(value) {
   return `${day}/${month}/${year} ${hour}:${minute}`;
 }
 
+function formatDateTimeWithSecondsBr(value) {
+  const date = normalizeDate(value);
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear());
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  const second = String(date.getSeconds()).padStart(2, "0");
+  return `${day}/${month}/${year} ${hour}:${minute}:${second}`;
+}
+
 function formatTimeValue(value) {
   if (!value) return null;
   return String(value).slice(0, 5);
+}
+
+function toFiniteNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 module.exports = {
