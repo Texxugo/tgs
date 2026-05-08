@@ -14,13 +14,9 @@ const serviceOrderRoutes = require("./routes/serviceOrders");
 const userServiceOrderRoutes = require("./routes/userServiceOrders");
 
 const app = express();
-const isProduction = process.env.NODE_ENV === "production";
 const trustProxy = process.env.TRUST_PROXY;
-
-const corsOrigins = String(process.env.CORS_ORIGINS || "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const host = process.env.HOST || "0.0.0.0";
+const publicApiUrl = String(process.env.PUBLIC_API_URL || "").trim();
 
 app.disable("x-powered-by");
 if (trustProxy) app.set("trust proxy", trustProxy);
@@ -80,4 +76,6 @@ app.use((err, req, res, next) => {
 });
 
 const port = Number(process.env.PORT || 3001);
-app.listen(port, () => console.log(`API on http://localhost:${port}`));
+app.listen(port, host, () => {
+  console.log(`API listening on ${publicApiUrl || `${host}:${port}`}`);
+});
