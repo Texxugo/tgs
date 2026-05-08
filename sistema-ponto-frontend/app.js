@@ -12,7 +12,89 @@ function getApiBase() {
 
 function setOut(el, obj) {
   if (!el) return;
-  el.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+  const text =
+    typeof obj === "string"
+      ? obj
+      : obj && (obj.message || obj.error)
+        ? obj.message || obj.error
+        : JSON.stringify(obj, null, 2);
+
+  el.hidden = !text;
+  el.textContent = text || "";
+}
+
+function getOccurrenceAdminOut() {
+  if (currentViewId === "view-admin-occurrences") {
+    return qs("soAdminOut") || qs("occurrenceConfigOut");
+  }
+  return qs("occurrenceConfigOut") || qs("soAdminOut");
+}
+
+function setConsultationAdminVisibility(isAdmin) {
+  const adminControls = qs("consultationAdminControls");
+  if (adminControls) adminControls.hidden = !isAdmin;
+
+  ["filterUserId", "btnEntriesByUser", "btnAllEntries"].forEach((id) => {
+    const el = qs(id);
+    if (el) el.disabled = !isAdmin;
+  });
+}
+
+function setAdminOnlyNavigationVisibility(isAdmin) {
+  document.querySelectorAll("[data-admin-only='true']").forEach((el) => {
+    el.hidden = !isAdmin;
+    el.disabled = !isAdmin;
+  });
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildMapsCoordsUrl(latitude, longitude) {
+  return `https://www.google.com/maps?q=${encodeURIComponent(`${latitude},${longitude}`)}`;
+}
+
+function buildMapsSearchUrl(query) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+function renderMapLink(url, label) {
+  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+}
+
+function renderCoordinateCell(latitude, longitude, axis) {
+  if (latitude == null || longitude == null) return "-";
+  const value = axis === "lat" ? latitude : longitude;
+  const numericValue = Number(value);
+  const label = Number.isFinite(numericValue) ? numericValue.toFixed(6) : String(value);
+  return renderMapLink(buildMapsCoordsUrl(latitude, longitude), label);
+}
+
+function renderGeoOut(geo) {
+  const out = qs("geoOut");
+  if (!out) return;
+
+  const url = buildMapsCoordsUrl(geo.latitude, geo.longitude);
+  const label = `${geo.latitude.toFixed(6)}, ${geo.longitude.toFixed(6)}`;
+  out.innerHTML =
+    `Localização: ${renderMapLink(url, label)} ` +
+    `(±${Math.round(geo.accuracy)}m)`;
+}
+
+function setJourneyMeta(message) {
+  const meta = qs("journeyMeta");
+  if (meta) meta.textContent = message;
+}
+
+function setClockActionHint(message) {
+  const hint = qs("clockActionHint");
+  if (hint) hint.textContent = message;
 }
 
 function showToast(message, type = "info", durationMs = 3200) {
@@ -175,7 +257,10 @@ function updateAuthUI() {
     "btnToggleActive",
     "btnListUsers",
     "btnLoadAlerts",
-    "btnMyEntries",
+    "btnLoadForgottenRequests",
+    "btnApproveForgotten",
+    "btnRejectForgotten",
+    "btnDownloadForgottenPdf",
     "btnAllEntries",
     "btnEntriesByUser",
   ].forEach((id) => {
@@ -227,6 +312,12 @@ function fmtIsoToBr(iso) {
   }
 }
 
+function renderAddressCell(address) {
+  if (!address) return "-";
+  const escaped = escapeHtml(address).replace(/\n/g, "<br>");
+  return `${escaped}<br>${renderMapLink(buildMapsSearchUrl(address), "Abrir no mapa")}`;
+}
+
 function renderEntries(entries) {
   const tbody = qs("entriesTable").querySelector("tbody");
   tbody.innerHTML = "";
@@ -243,8 +334,9 @@ function renderEntries(entries) {
       <td>${userCol}</td>
       <td>${e.type}</td>
       <td>${fmtIsoToBr(e.occurred_at)}</td>
-      <td>${e.latitude ?? "-"}</td>
-      <td>${e.longitude ?? "-"}</td>
+      <td>${renderCoordinateCell(e.latitude, e.longitude, "lat")}</td>
+      <td>${renderCoordinateCell(e.latitude, e.longitude, "lng")}</td>
+      <td>${renderAddressCell(e.address || e.location_address)}</td>
     `;
 
     tbody.appendChild(tr);
@@ -299,12 +391,360 @@ function buildPeriodQuery() {
   return q ? `?${q}` : "";
 }
 
-let currentViewId = "view-dashboard";
+function statusLabel(status) {
+  switch (String(status || "").toUpperCase()) {
+    case "APPROVED":
+      return "Aprovado";
+    case "REJECTED":
+      return "Rejeitado";
+    default:
+      return "Pendente";
+  }
+}
+
+function fmtDateOnlyToBr(dateText) {
+  if (!dateText) return "-";
+  const [year, month, day] = String(dateText).split("-");
+  if (!year || !month || !day) return dateText;
+  return `${day}/${month}/${year}`;
+}
+
+function fmtTimeValue(timeText) {
+  return timeText ? String(timeText).slice(0, 5) : "-";
+}
+
+let forgottenRequestsCache = [];
+let selectedForgottenRequestId = null;
+
+function clearForgottenDetail() {
+  selectedForgottenRequestId = null;
+  const empty = qs("forgottenDetailEmpty");
+  const content = qs("forgottenDetailContent");
+  const signatureImage = qs("forgottenSignatureImage");
+  const signatureFallback = qs("forgottenSignatureFallback");
+
+  if (empty) empty.hidden = false;
+  if (content) content.hidden = true;
+  if (signatureImage) {
+    signatureImage.hidden = true;
+    signatureImage.removeAttribute("src");
+  }
+  if (signatureFallback) signatureFallback.hidden = false;
+  if (qs("forgottenReviewNotes")) qs("forgottenReviewNotes").value = "";
+  if (qs("btnApproveForgotten")) qs("btnApproveForgotten").disabled = true;
+  if (qs("btnRejectForgotten")) qs("btnRejectForgotten").disabled = true;
+  if (qs("btnDownloadForgottenPdf")) {
+    qs("btnDownloadForgottenPdf").disabled = true;
+    qs("btnDownloadForgottenPdf").hidden = true;
+    delete qs("btnDownloadForgottenPdf").dataset.url;
+  }
+  setOut(qs("forgottenDetailOut"), "");
+}
+
+function setForgottenDetailValue(id, value) {
+  const el = qs(id);
+  if (!el) return;
+  el.textContent = value || "-";
+}
+
+function renderForgottenDetail(request) {
+  const empty = qs("forgottenDetailEmpty");
+  const content = qs("forgottenDetailContent");
+  const signatureImage = qs("forgottenSignatureImage");
+  const signatureFallback = qs("forgottenSignatureFallback");
+
+  if (!request) {
+    clearForgottenDetail();
+    return;
+  }
+
+  selectedForgottenRequestId = request.id;
+  if (empty) empty.hidden = true;
+  if (content) content.hidden = false;
+
+  setForgottenDetailValue(
+    "forgottenDetailEmployeeName",
+    request.user_name
+      ? `${request.user_name} (${request.user_cpf || "-"}) [${request.user_id}]`
+      : request.employee_name,
+  );
+  setForgottenDetailValue("forgottenDetailDate", fmtDateOnlyToBr(request.forgotten_date));
+  setForgottenDetailValue("forgottenDetailEntry", fmtTimeValue(request.entry_time));
+  setForgottenDetailValue("forgottenDetailExit", fmtTimeValue(request.exit_time));
+  setForgottenDetailValue("forgottenDetailStatus", statusLabel(request.status));
+  setForgottenDetailValue("forgottenDetailSignedAt", fmtIsoToBr(request.signed_at));
+  setForgottenDetailValue(
+    "forgottenDetailIntegrityHash",
+    request.integrity_hash
+      ? `${request.integrity_algorithm || "SHA-256"}: ${request.integrity_hash}`
+      : "Nao gerada",
+  );
+  setForgottenDetailValue("forgottenDetailCreatedAt", fmtIsoToBr(request.created_at));
+  setForgottenDetailValue(
+    "forgottenDetailConfirmed",
+    request.confirmed_by_employee ? "Sim" : "Nao",
+  );
+  setForgottenDetailValue("forgottenDetailReason", request.reason || "-");
+  setForgottenDetailValue("forgottenDetailWorkplace", request.workplace || "-");
+  setForgottenDetailValue("forgottenDetailNotes", request.notes || "-");
+  setForgottenDetailValue(
+    "forgottenDetailReview",
+    request.review_note
+      ? `${request.review_note}${request.reviewed_by_name ? ` | por ${request.reviewed_by_name}` : ""}${request.reviewed_at ? ` em ${fmtIsoToBr(request.reviewed_at)}` : ""}`
+      : "Sem analise registrada",
+  );
+
+  if (signatureImage && request.signature_data_url) {
+    signatureImage.src = request.signature_data_url;
+    signatureImage.hidden = false;
+    if (signatureFallback) signatureFallback.hidden = true;
+  } else {
+    if (signatureImage) {
+      signatureImage.hidden = true;
+      signatureImage.removeAttribute("src");
+    }
+    if (signatureFallback) signatureFallback.hidden = false;
+  }
+
+  if (qs("forgottenReviewNotes")) {
+    qs("forgottenReviewNotes").value = request.review_note || "";
+  }
+
+  const canReview = request.status === "PENDING";
+  if (qs("btnApproveForgotten")) qs("btnApproveForgotten").disabled = !canReview;
+  if (qs("btnRejectForgotten")) qs("btnRejectForgotten").disabled = !canReview;
+
+  const pdfButton = qs("btnDownloadForgottenPdf");
+  if (pdfButton) {
+    const pdfUrl = request.approval_pdf_available ? request.approval_pdf_url : "";
+    if (pdfUrl) {
+      pdfButton.hidden = false;
+      pdfButton.disabled = false;
+      pdfButton.dataset.url = pdfUrl;
+    } else {
+      pdfButton.hidden = true;
+      pdfButton.disabled = true;
+      delete pdfButton.dataset.url;
+    }
+  }
+}
+
+function getDownloadFilenameFromDisposition(contentDisposition, fallbackName) {
+  if (!contentDisposition) return fallbackName;
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match && utf8Match[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+
+  const simpleMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+  if (simpleMatch && simpleMatch[1]) {
+    return simpleMatch[1];
+  }
+
+  return fallbackName;
+}
+
+async function downloadForgottenApprovalPdf() {
+  const pdfButton = qs("btnDownloadForgottenPdf");
+  const detailOut = qs("forgottenDetailOut");
+  const pdfPath = pdfButton?.dataset?.url;
+
+  if (!pdfPath || !selectedForgottenRequestId) {
+    toastError("PDF ainda não disponível para esta solicitação");
+    return;
+  }
+
+  const token = loadToken();
+  if (!token) {
+    toastError("Faça login novamente para baixar o PDF");
+    return;
+  }
+
+  pdfButton.disabled = true;
+  setOut(detailOut, "Baixando PDF...");
+
+  try {
+    const response = await fetch(`${getApiBase()}${pdfPath}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const contentType = response.headers.get("content-type") || "";
+      let message = "Erro ao baixar PDF";
+
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        message = data.error || data.message || message;
+      } else {
+        const text = (await response.text()).trim();
+        if (text) message = text;
+      }
+
+      throw new Error(`${response.status} - ${message}`);
+    }
+
+    const fileName = getDownloadFilenameFromDisposition(
+      response.headers.get("content-disposition"),
+      `solicitacao-esquecimento-${selectedForgottenRequestId}.pdf`,
+    );
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+
+    setOut(detailOut, "");
+    toastSuccess("PDF baixado com sucesso.");
+  } catch (err) {
+    setOut(detailOut, err.message);
+    toastError(`Erro ao baixar PDF: ${err.message}`);
+  } finally {
+    if (pdfButton.dataset.url) {
+      pdfButton.disabled = false;
+    }
+  }
+}
+
+function buildForgottenRequestsQuery() {
+  const params = new URLSearchParams();
+
+  const status = qs("forgottenStatusFilter").value;
+  const collaborator = qs("forgottenCollaboratorFilter").value.trim();
+  const forgottenDateFrom = qs("forgottenDateFrom").value;
+  const forgottenDateTo = qs("forgottenDateTo").value;
+  const createdFrom = qs("forgottenCreatedFrom").value;
+  const createdTo = qs("forgottenCreatedTo").value;
+
+  if (status) params.set("status", status);
+  if (collaborator) params.set("collaborator", collaborator);
+  if (forgottenDateFrom) params.set("forgotten_date_from", forgottenDateFrom);
+  if (forgottenDateTo) params.set("forgotten_date_to", forgottenDateTo);
+  if (createdFrom) params.set("created_from", new Date(`${createdFrom}T00:00:00`).toISOString());
+  if (createdTo) params.set("created_to", new Date(`${createdTo}T23:59:59`).toISOString());
+
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+function renderForgottenRequestsTable(rows) {
+  const tbody = qs("forgottenTable").querySelector("tbody");
+  tbody.innerHTML = "";
+
+  for (const request of rows) {
+    const tr = document.createElement("tr");
+    const collaboratorLabel = request.user_name
+      ? `${request.user_name} [${request.user_id}]`
+      : request.employee_name || String(request.user_id);
+
+    tr.innerHTML = `
+      <td>${request.id}</td>
+      <td>${escapeHtml(collaboratorLabel)}</td>
+      <td>${fmtDateOnlyToBr(request.forgotten_date)}</td>
+      <td>${fmtTimeValue(request.entry_time)}</td>
+      <td>${fmtTimeValue(request.exit_time)}</td>
+      <td>${escapeHtml(request.reason || "-")}</td>
+      <td>${statusLabel(request.status)}</td>
+      <td>${fmtIsoToBr(request.created_at)}</td>
+      <td><button data-open-forgotten="${request.id}" class="secondary">Detalhar</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  qs("forgottenInfo").textContent = `Total: ${rows.length}`;
+}
+
+async function loadForgottenRequestDetail(id) {
+  const detailOut = qs("forgottenDetailOut");
+  setOut(detailOut, "Carregando detalhe...");
+
+  try {
+    const data = await apiFetch(`/admin/forgotten-requests/${encodeURIComponent(id)}`, {
+      method: "GET",
+    });
+    renderForgottenDetail(data.request);
+    setOut(detailOut, "");
+  } catch (err) {
+    clearForgottenDetail();
+    setOut(detailOut, err.message);
+    toastError(`Erro ao carregar solicitacao: ${err.message}`);
+  }
+}
+
+async function loadForgottenRequests({ preserveSelection = true } = {}) {
+  const out = qs("forgottenOut");
+  setOut(out, "Buscando solicitacoes...");
+
+  try {
+    const data = await apiFetch(`/admin/forgotten-requests${buildForgottenRequestsQuery()}`, {
+      method: "GET",
+    });
+    forgottenRequestsCache = data.requests || [];
+    renderForgottenRequestsTable(forgottenRequestsCache);
+    setOut(out, `${forgottenRequestsCache.length} solicitacao(oes) exibida(s).`);
+
+    if (!forgottenRequestsCache.length) {
+      clearForgottenDetail();
+      return;
+    }
+
+    const nextId = preserveSelection && selectedForgottenRequestId
+      ? selectedForgottenRequestId
+      : forgottenRequestsCache[0].id;
+    const exists = forgottenRequestsCache.some((request) => request.id === nextId);
+    await loadForgottenRequestDetail(exists ? nextId : forgottenRequestsCache[0].id);
+  } catch (err) {
+    setOut(out, err.message);
+    toastError(`Erro ao listar solicitacoes: ${err.message}`);
+  }
+}
+
+async function reviewForgottenRequest(status) {
+  if (!selectedForgottenRequestId) {
+    toastError("Selecione uma solicitacao antes de analisar");
+    return;
+  }
+
+  const detailOut = qs("forgottenDetailOut");
+  const reviewNotes = qs("forgottenReviewNotes").value.trim();
+  setOut(detailOut, status === "APPROVED" ? "Aprovando..." : "Rejeitando...");
+
+  try {
+    const data = await apiFetch(
+      `/admin/forgotten-requests/${encodeURIComponent(selectedForgottenRequestId)}/review`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          status,
+          review_notes: reviewNotes,
+        }),
+      },
+    );
+
+    renderForgottenDetail(data.request);
+    setOut(detailOut, data.message || "Analise registrada com sucesso.");
+    await loadForgottenRequests();
+    toastSuccess(data.message || "Analise registrada com sucesso");
+  } catch (err) {
+    setOut(detailOut, err.message);
+    toastError(`Erro ao analisar solicitacao: ${err.message}`);
+  }
+}
+
+let currentViewId = "view-ponto";
 let journeyRefreshInFlight = false;
+let isAdminSession = false;
 
 function getCurrentRoutePath() {
   const raw = (window.location.hash || "").replace(/^#/, "").trim();
-  return raw || "/dashboard";
+  return raw || "/ponto";
 }
 
 function navigateToRoute(routePath, { replace = false } = {}) {
@@ -326,26 +766,43 @@ async function refreshJourneyStatus() {
 
   const token = loadToken();
   if (!token) {
-    statusEl.textContent = "FaÃ§a login";
+    statusEl.textContent = "Escala: Faça login";
+    setJourneyMeta("Entre no sistema para consultar o status atual.");
+    setClockActionHint("Faça login para registrar presença ou ausência.");
     btn.disabled = true;
-    btn.textContent = "FaÃ§a login";
+    btn.textContent = "Faça login";
     journeyRefreshInFlight = false;
     return;
   }
 
-  statusEl.textContent = "Consultando...";
+  statusEl.textContent = "Escala: consultando...";
+  setJourneyMeta("Atualizando dados da escala...");
+  setClockActionHint("Aguarde a atualização antes de registrar uma nova ação.");
   btn.disabled = true;
   btn.textContent = "Carregando...";
 
   try {
     const data = await apiFetch("/time/status", { method: "GET" });
     const inJourney = !!data.in_journey;
+    const lastRecord = data.last?.occurred_at
+      ? `Último registro em ${fmtIsoToBr(data.last.occurred_at)}`
+      : "Nenhum registro encontrado hoje.";
 
-    statusEl.textContent = inJourney ? "Em jornada" : "Fora da jornada";
-    btn.textContent = inJourney ? "Sair da jornada" : "Registrar entrada";
+    statusEl.textContent = inJourney
+      ? "Escala: Presente"
+      : "Escala: Ausente";
+    setJourneyMeta(lastRecord);
+    setClockActionHint(
+      inJourney
+        ? "Registre ausência ao finalizar a escala."
+        : "Registre presença ao iniciar a escala.",
+    );
+    btn.textContent = inJourney ? "Marcar ausência" : "Marcar presença";
     btn.disabled = false;
   } catch (err) {
-    statusEl.textContent = "Erro ao consultar";
+    statusEl.textContent = "Escala: indisponível";
+    setJourneyMeta("Não foi possível consultar a última situação da escala.");
+    setClockActionHint("Revise sua conexão e tente novamente.");
     btn.textContent = "Erro";
     btn.disabled = true;
     setOut(qs("clockOut"), err.message);
@@ -434,13 +891,26 @@ async function loadAlerts() {
     qs("alertsInfo").textContent =
       `Total: ${data.total} | Mostrando: ${(data.alerts || []).length}`;
 
-    setOut(out, data);
+    setOut(out, `${(data.alerts || []).length} alerta(s) exibido(s).`);
   } catch (err) {
     setOut(out, err.message);
   }
 }
 
 function setActiveView(viewId, { syncRoute = true } = {}) {
+  const isAdminView =
+    viewId === "view-consultas" || String(viewId).startsWith("view-admin");
+  const tokenRole = decodeJwtPayload(loadToken() || "")?.role;
+  const hasAdminAccess = isAdminSession || tokenRole === "ADMIN";
+
+  if (isAdminView && !hasAdminAccess) {
+    const fallbackViewId = "view-ponto";
+    if (syncRoute && typeof window.viewIdToRoute === "function") {
+      navigateToRoute(window.viewIdToRoute(fallbackViewId), { replace: true });
+    }
+    viewId = fallbackViewId;
+  }
+
   currentViewId = viewId;
 
   document
@@ -456,15 +926,26 @@ function setActiveView(viewId, { syncRoute = true } = {}) {
   if (btn) btn.classList.add("active");
 
   const titles = {
-    "view-dashboard": ["Dashboard", "Visão geral do sistema"],
     "view-ponto": [
-      "Bater ponto",
-      "Registro de entrada/saí­da com geolocalização",
+      "Controle de Escala",
+      "Registro de presença e ausência com geolocalização",
     ],
-    "view-consultas": ["Consultas", "Registros por periodo"],
+    "view-consultas": ["Consultas", "Registros administrativos"],
+    "view-admin-occurrences": [
+      "Ocorrências",
+      "Registro e acompanhamento das coberturas",
+    ],
+    "view-admin-forgotten": [
+      "Esquecimento de Batida",
+      "Fila de análise administrativa com assinatura",
+    ],
     "view-admin-users": [
-      "Admin vê usuários",
-      "Cadastro e ativação/desativação",
+      "Usuários",
+      "Cadastro e gestão de acesso",
+    ],
+    "view-admin-cadastros": [
+      "Cadastros",
+      "Locais e tipos de ocorrência",
     ],
     "view-admin-alerts": ["Alertas", "Fila auditável e resolução"],
   };
@@ -479,71 +960,30 @@ function setActiveView(viewId, { syncRoute = true } = {}) {
 
   if (viewId === "view-ponto") {
     refreshJourneyStatus();
-    loadMyAssignedServiceOrders();
+  }
+
+  if (
+    (
+      viewId === "view-admin-occurrences" ||
+      viewId === "view-admin-cadastros"
+    ) &&
+    loadToken()
+  ) {
+    loadOccurrenceMetadata({ silent: true }).catch(() => {});
+  }
+
+  if (viewId === "view-admin-occurrences" && loadToken()) {
+    listServiceOrders().catch(() => {});
+  }
+
+  if (viewId === "view-admin-forgotten" && loadToken()) {
+    loadForgottenRequests().catch(() => {});
+  }
+
+  if (viewId === "view-admin-users" && loadToken()) {
+    loadUsersTable().catch(() => {});
   }
 }
-
-async function loadActiveSO() {
-  const out = qs("soOut");
-  const select = qs("soSelect");
-
-  setOut(out, "Carregando...");
-
-  try {
-    const data = await apiFetch("/service-orders/my/active", { method: "GET" });
-
-    select.innerHTML = `<option value="">Autômatico</option>`;
-
-    for (const so of data.service_orders || []) {
-      const opt = document.createElement("option");
-      opt.value = String(so.id);
-      opt.textContent = `#${so.id} - ${so.title}`;
-      select.appendChild(opt);
-    }
-
-    out.textContent = `OS ativas: ${(data.service_orders || []).length}`;
-  } catch (err) {
-    out.textContent = `OS: ${err.message}`;
-  }
-}
-
-function renderMyServiceOrdersTable(rows) {
-  const table = qs("mySoTable");
-  if (!table) return;
-
-  const tbody = table.querySelector("tbody");
-  tbody.innerHTML = "";
-
-  for (const so of rows) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${so.id}</td>
-      <td>${so.title || "-"}</td>
-      <td>${so.status || "-"}</td>
-      <td>${so.expected_start ? fmtIsoToBr(so.expected_start) : "-"}</td>
-      <td>${so.expected_duration_hours ?? "-"}h</td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
-async function loadMyAssignedServiceOrders() {
-  const info = qs("mySoInfo");
-  if (!info) return;
-
-  info.textContent = "Minhas OS: carregando...";
-  try {
-    const data = await apiFetch("/service-orders/my", { method: "GET" });
-    const rows = data.service_orders || [];
-    renderMyServiceOrdersTable(rows);
-    info.textContent = `Minhas OS: ${rows.length}`;
-  } catch (err) {
-    info.textContent = `Minhas OS: erro (${err.message})`;
-  }
-}
-
-const btnLoadSO = document.getElementById("btnLoadSO");
-if (btnLoadSO) btnLoadSO.addEventListener("click", loadActiveSO);
 
 const appRoot = document.querySelector(".app");
 const navBackdrop = qs("navBackdrop");
@@ -589,6 +1029,10 @@ async function refreshRoleUILegacy() {
 
   if (!token) {
     pill.textContent = "Deslogado";
+    isAdminSession = false;
+    clearForgottenDetail();
+    setConsultationAdminVisibility(false);
+    setAdminOnlyNavigationVisibility(false);
     document
       .querySelectorAll('.navItem[data-view^="view-admin"]')
       .forEach((b) => (b.disabled = true));
@@ -598,14 +1042,20 @@ async function refreshRoleUILegacy() {
   try {
     const me = await apiFetch("/me", { method: "GET" });
     const role = me.user.role;
-    pill.textContent = `${me.user.name} - ${role}`;
+    pill.textContent = `${me.user.id}`;
 
     const isAdmin = role === "ADMIN";
+    isAdminSession = isAdmin;
+    setConsultationAdminVisibility(isAdmin);
+    setAdminOnlyNavigationVisibility(isAdmin);
     document
       .querySelectorAll('[data-view^="view-admin"]')
       .forEach((b) => (b.disabled = !isAdmin));
   } catch {
     pill.textContent = "SessÃ£o invÃ¡lida";
+    isAdminSession = false;
+    setConsultationAdminVisibility(false);
+    setAdminOnlyNavigationVisibility(false);
     document
       .querySelectorAll('[data-view^="view-admin"]')
       .forEach((b) => (b.disabled = true));
@@ -616,19 +1066,97 @@ function toIsoFromDatetimeLocal(val) {
   return new Date(val).toISOString();
 }
 
+function populateSelect(selectId, rows, placeholder, labelBuilder) {
+  const select = qs(selectId);
+  if (!select) return;
+
+  select.innerHTML = `<option value="">${placeholder}</option>`;
+  for (const row of rows) {
+    const option = document.createElement("option");
+    option.value = String(row.id);
+    option.textContent = labelBuilder(row);
+    select.appendChild(option);
+  }
+}
+
+function renderOccurrenceMetadata(metadata) {
+  const locations = metadata.locations || [];
+  const occurrenceTypes = metadata.occurrence_types || [];
+  const users = metadata.users || [];
+
+  populateSelect(
+    "occurrenceLocationSelect",
+    locations,
+    "Selecione um local",
+    (location) => location.name,
+  );
+  populateSelect(
+    "occurrenceTypeSelect",
+    occurrenceTypes,
+    "Selecione um tipo",
+    (occurrenceType) => occurrenceType.name,
+  );
+  populateSelect(
+    "replacedUserSelect",
+    users,
+    "Selecione um funcionario",
+    (user) => `${user.name} [${user.id}]`,
+  );
+  populateSelect(
+    "coverUserSelect",
+    users,
+    "Selecione um funcionario",
+    (user) => `${user.name} [${user.id}]`,
+  );
+
+  const info = qs("occurrenceMetaInfo");
+  if (info) {
+    info.textContent =
+      `Locais: ${locations.length} | Tipos: ${occurrenceTypes.length} | Funcionarios: ${users.length}`;
+  }
+}
+
+async function loadOccurrenceMetadata({ silent = false } = {}) {
+  try {
+    const data = await apiFetch("/admin/service-orders/metadata", { method: "GET" });
+    renderOccurrenceMetadata(data);
+    return data;
+  } catch (err) {
+    if (!silent) {
+      setOut(getOccurrenceAdminOut(), err.message);
+      toastError(`Erro ao carregar listas: ${err.message}`);
+    }
+    throw err;
+  }
+}
+
 function renderServiceOrdersTable(rows) {
   const tbody = qs("soTable").querySelector("tbody");
   tbody.innerHTML = "";
 
   for (const so of rows) {
+    const replacedUserLabel = so.replaced_user_name
+      ? `${so.replaced_user_name} [${so.replaced_user_id}]`
+      : so.replaced_user_id || "-";
+    const coverUserLabel = so.cover_user_name
+      ? `${so.cover_user_name} [${so.cover_user_id}]`
+      : so.cover_user_id || "-";
+    const locationLabel = so.location_name || so.location_text || "-";
+    const renderedLocation =
+      locationLabel === "-"
+        ? "-"
+        : renderMapLink(buildMapsSearchUrl(locationLabel), locationLabel);
+
     const tr = document.createElement("tr");
     tr.innerHTML = `
     <td>${so.id}</td>
-    <td>${so.title}</td>
+    <td>${renderedLocation}</td>
+    <td>${so.occurrence_type_name || "-"}</td>
+    <td>${replacedUserLabel}</td>
+    <td>${coverUserLabel}</td>
     <td>${so.status}</td>
     <td>${fmtIsoToBr(so.expected_start)}</td>
     <td>${so.expected_duration_hours}h</td>
-    <td>${so.location_text || "-"}</td>
     <td>${so.created_by_name || so.created_by}</td>
     <td>
       ${so.status === "OPEN" ? `<button data-close-so="${so.id}">Encerrar</button>` : "-"}
@@ -640,64 +1168,137 @@ function renderServiceOrdersTable(rows) {
 
 async function listServiceOrders() {
   const out = qs("soAdminOut");
-  setOut(out, "Buscando OS...");
+  setOut(out, "Buscando ocorrencias...");
 
   try {
     const data = await apiFetch("/admin/service-orders", { method: "GET" });
     const rows = data.service_orders || [];
 
     renderServiceOrdersTable(rows);
-    // setOut(qs("soAdminJson"), data);
-    setOut(out, `OK - ${rows.length} OS`);
-    toastInfo(`${rows.length} OS carregadas`);
+    setOut(out, `OK - ${rows.length} ocorrencias`);
+    toastInfo(`${rows.length} ocorrencias carregadas`);
   } catch (err) {
     setOut(out, err.message);
-    toastError(`Erro ao listar OS: ${err.message}`);
+    toastError(`Erro ao listar ocorrencias: ${err.message}`);
   }
 }
+
 qs("soTable").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-close-so]");
   if (!btn) return;
 
   const soId = btn.getAttribute("data-close-so");
-  if (!confirm(`Encerrar OS #${soId}?`)) return;
+  if (!confirm(`Encerrar ocorrencia #${soId}?`)) return;
 
   try {
-    const data = await apiFetch(
-      `/admin/service-orders/${encodeURIComponent(soId)}/close`,
-      {
-        method: "PATCH",
-      },
-    );
+    await apiFetch(`/admin/service-orders/${encodeURIComponent(soId)}/close`, {
+      method: "PATCH",
+    });
 
-    // setOut(qs("soAdminJson"), data);
-    setOut(qs("soAdminOut"), `OS #${soId} encerrada.`);
+    setOut(qs("soAdminOut"), `Ocorrencia #${soId} encerrada.`);
     await listServiceOrders();
-    toastSuccess(`OS #${soId} encerrada`);
+    toastSuccess(`Ocorrencia #${soId} encerrada`);
   } catch (err) {
     setOut(qs("soAdminOut"), err.message);
-    toastError(`Erro ao encerrar OS: ${err.message}`);
+    toastError(`Erro ao encerrar ocorrencia: ${err.message}`);
+  }
+});
+
+qs("btnCreateLocation").addEventListener("click", async () => {
+  const out = getOccurrenceAdminOut();
+  const name = qs("newLocationName").value.trim();
+
+  if (!name || name.length < 2) {
+    setOut(out, "Informe um local valido.");
+    toastError("Informe um local valido");
+    return;
+  }
+
+  setOut(out, "Cadastrando local...");
+
+  try {
+    await apiFetch("/admin/service-orders/locations", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+
+    qs("newLocationName").value = "";
+    await loadOccurrenceMetadata({ silent: true });
+    setOut(out, `Local "${name}" cadastrado com sucesso.`);
+    toastSuccess("Local cadastrado com sucesso");
+  } catch (err) {
+    setOut(out, err.message);
+    toastError(`Erro ao cadastrar local: ${err.message}`);
+  }
+});
+
+qs("btnCreateOccurrenceType").addEventListener("click", async () => {
+  const out = getOccurrenceAdminOut();
+  const name = qs("newOccurrenceTypeName").value.trim();
+
+  if (!name || name.length < 2) {
+    setOut(out, "Informe um tipo de ocorrencia valido.");
+    toastError("Informe um tipo de ocorrencia valido");
+    return;
+  }
+
+  setOut(out, "Cadastrando tipo de ocorrencia...");
+
+  try {
+    await apiFetch("/admin/service-orders/occurrence-types", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+
+    qs("newOccurrenceTypeName").value = "";
+    await loadOccurrenceMetadata({ silent: true });
+    setOut(out, `Tipo de ocorrencia "${name}" cadastrado com sucesso.`);
+    toastSuccess("Tipo de ocorrencia cadastrado com sucesso");
+  } catch (err) {
+    setOut(out, err.message);
+    toastError(`Erro ao cadastrar tipo de ocorrencia: ${err.message}`);
   }
 });
 
 qs("btnCreateSO").addEventListener("click", async () => {
   const out = qs("soAdminOut");
-  setOut(out, "Criando OS...");
+  setOut(out, "Registrando ocorrencia...");
 
   try {
-    const title = qs("soTitle").value.trim();
-    const description = qs("soDescription").value.trim();
-    const location_text = qs("soLocation").value.trim();
+    const location_id = Number(qs("occurrenceLocationSelect").value);
+    const occurrence_type_id = Number(qs("occurrenceTypeSelect").value);
+    const replaced_user_id = Number(qs("replacedUserSelect").value);
+    const cover_user_id = Number(qs("coverUserSelect").value);
     const expectedStartLocal = qs("soExpectedStart").value;
     const expected_duration_hours = Number(qs("soDurationHours").value);
 
-    if (!title || title.length < 3) {
-      setOut(out, "TÃ­tulo precisa ter no mÃ­nimo 3 caracteres.");
-      toastError("Titulo precisa ter no minimo 3 caracteres");
+    if (!Number.isFinite(location_id) || location_id <= 0) {
+      setOut(out, "Selecione um local.");
+      toastError("Selecione um local");
+      return;
+    }
+    if (!Number.isFinite(occurrence_type_id) || occurrence_type_id <= 0) {
+      setOut(out, "Selecione um tipo de ocorrencia.");
+      toastError("Selecione um tipo de ocorrencia");
+      return;
+    }
+    if (!Number.isFinite(replaced_user_id) || replaced_user_id <= 0) {
+      setOut(out, "Selecione o funcionario substituido.");
+      toastError("Selecione o funcionario substituido");
+      return;
+    }
+    if (!Number.isFinite(cover_user_id) || cover_user_id <= 0) {
+      setOut(out, "Selecione o funcionario de cobertura.");
+      toastError("Selecione o funcionario de cobertura");
+      return;
+    }
+    if (replaced_user_id === cover_user_id) {
+      setOut(out, "Os funcionarios de substituicao e cobertura devem ser diferentes.");
+      toastError("Os funcionarios devem ser diferentes");
       return;
     }
     if (!expectedStartLocal) {
-      setOut(out, "Informe o inÃ­cio previsto.");
+      setOut(out, "Informe o inicio previsto.");
       toastError("Informe o inicio previsto");
       return;
     }
@@ -705,15 +1306,16 @@ qs("btnCreateSO").addEventListener("click", async () => {
       !Number.isFinite(expected_duration_hours) ||
       expected_duration_hours <= 0
     ) {
-      setOut(out, "DuraÃ§Ã£o invÃ¡lida.");
+      setOut(out, "Duracao invalida.");
       toastError("Duracao invalida");
       return;
     }
 
     const payload = {
-      title,
-      description: description || undefined,
-      location_text: location_text || undefined,
+      location_id,
+      occurrence_type_id,
+      replaced_user_id,
+      cover_user_id,
       expected_start: toIsoFromDatetimeLocal(expectedStartLocal),
       expected_duration_hours,
     };
@@ -723,18 +1325,23 @@ qs("btnCreateSO").addEventListener("click", async () => {
       body: JSON.stringify(payload),
     });
 
-    // setOut(qs("soAdminJson"), data);
-    setOut(out, `OS criada (#${data.service_order?.id ?? "?"})`);
+    setOut(out, `Ocorrencia criada (#${data.service_order?.id ?? "?"})`);
 
     await listServiceOrders();
-    toastSuccess(`OS #${data.service_order?.id ?? "?"} criada`);
+    toastSuccess(`Ocorrencia #${data.service_order?.id ?? "?"} criada`);
   } catch (err) {
     setOut(out, err.message);
-    toastError(`Erro ao criar OS: ${err.message}`);
+    toastError(`Erro ao registrar ocorrencia: ${err.message}`);
   }
 });
 
 qs("btnListSO").addEventListener("click", listServiceOrders);
+qs("btnRefreshOccurrenceMeta").addEventListener("click", async () => {
+  try {
+    await loadOccurrenceMetadata();
+    toastSuccess("Listas atualizadas");
+  } catch {}
+});
 
 const btnHealth = qs("btnHealth");
 if (btnHealth) {
@@ -772,7 +1379,22 @@ qs("btnLogin").addEventListener("click", async () => {
     if (currentViewId === "view-ponto") {
       await refreshJourneyStatus();
     }
-    setOut(out, data);
+    if (
+      currentViewId === "view-admin-occurrences" ||
+      currentViewId === "view-admin-cadastros"
+    ) {
+      await loadOccurrenceMetadata({ silent: true });
+    }
+    if (currentViewId === "view-admin-occurrences") {
+      await listServiceOrders();
+    }
+    if (currentViewId === "view-admin-forgotten") {
+      await loadForgottenRequests();
+    }
+    if (currentViewId === "view-admin-users") {
+      await loadUsersTable();
+    }
+    setOut(out, "Login realizado com sucesso.");
     toastSuccess("Login realizado com sucesso");
   } catch (err) {
     setOut(out, err.message);
@@ -791,8 +1413,9 @@ qs("btnLogin").addEventListener("click", async () => {
     if (currentViewId === "view-ponto") {
       refreshJourneyStatus();
     }
-    setActiveView("view-dashboard");
-    navigateToRoute("/dashboard", { replace: true });
+    clearForgottenDetail();
+    setActiveView("view-ponto");
+    navigateToRoute("/ponto", { replace: true });
     refreshRoleUI();
     toastInfo("Sessao encerrada");
   });
@@ -813,7 +1436,7 @@ qs("btnCreateUser").addEventListener("click", async () => {
       body: JSON.stringify({ name, cpf, password, role }),
     });
 
-    setOut(out, data);
+    setOut(out, `Usuário #${data.id} cadastrado com sucesso.`);
     toastSuccess("Usuario cadastrado com sucesso");
   } catch (err) {
     setOut(out, err.message);
@@ -826,7 +1449,7 @@ qs("btnGetGeo").addEventListener("click", async () => {
   out.textContent = "LocalizaÃ§Ã£o: capturando...";
   try {
     const geo = await getGeo();
-    out.textContent = `LocalizaÃ§Ã£o: ${geo.latitude.toFixed(6)}, ${geo.longitude.toFixed(6)} (Â±${Math.round(geo.accuracy)}m)`;
+    renderGeoOut(geo);
   } catch (err) {
     out.textContent = `LocalizaÃ§Ã£o: ${err.message}`;
   }
@@ -841,23 +1464,19 @@ qs("btnClock").addEventListener("click", async () => {
     try {
       const g = await getGeo();
       geo = { latitude: g.latitude, longitude: g.longitude };
-      qs("geoOut").textContent =
-        `Localização: ${g.latitude.toFixed(6)}, ${g.longitude.toFixed(6)} (Â±${Math.round(g.accuracy)}m)`;
+      renderGeoOut(g);
     } catch (geoErr) {
       qs("geoOut").textContent = `Localização: ${geoErr.message}`;
     }
 
     const statusData = await apiFetch("/time/status", { method: "GET" });
     const type = statusData.in_journey ? "OUT" : "IN";
-    const soVal = qs("soSelect")?.value?.trim();
-    const soId = soVal ? Number(soVal) : null;
 
     const payload = {
       type,
       occurred_at: nowISO(),
       latitude: geo.latitude,
       longitude: geo.longitude,
-      service_order_id: soId,
     };
 
     const data = await apiFetch("/time/clock", {
@@ -865,30 +1484,25 @@ qs("btnClock").addEventListener("click", async () => {
       body: JSON.stringify(payload),
     });
 
-    setOut(out, data);
+    setOut(
+      out,
+      type === "IN"
+        ? "Presença registrada com sucesso."
+        : "Ausência registrada com sucesso.",
+    );
     await refreshJourneyStatus();
-    toastSuccess(`Ponto registrado (${type})`);
+    toastSuccess(
+      type === "IN"
+        ? "Escala marcada como presente"
+        : "Escala marcada como ausente",
+    );
   } catch (err) {
     setOut(out, err.message);
-    toastError(`Erro ao bater ponto: ${err.message}`);
+    toastError(`Erro ao atualizar escala: ${err.message}`);
   }
 });
 
 qs("btnRefreshStatus").addEventListener("click", refreshJourneyStatus);
-
-qs("btnMyEntries").addEventListener("click", async () => {
-  if (!(await ensureLoggedForEntries())) return;
-
-  setOut(qs("entriesOut"), "Buscando...");
-  try {
-    const q = buildPeriodQuery();
-    const data = await apiFetch(`/entries${q}`, { method: "GET" });
-    renderEntries(data.entries || []);
-    setOut(qs("entriesOut"), data);
-  } catch (err) {
-    setOut(qs("entriesOut"), err.message);
-  }
-});
 
 qs("btnEntriesByUser").addEventListener("click", async () => {
   if (!(await ensureLoggedForEntries())) return;
@@ -915,7 +1529,7 @@ qs("btnEntriesByUser").addEventListener("click", async () => {
     });
 
     renderEntries(data.entries || []);
-    setOut(qs("entriesOut"), data);
+    setOut(qs("entriesOut"), `${(data.entries || []).length} registro(s) encontrado(s).`);
   } catch (err) {
     setOut(qs("entriesOut"), err.message);
     toastError(`${err.message}`);
@@ -930,7 +1544,7 @@ qs("btnAllEntries").addEventListener("click", async () => {
     const q = buildPeriodQuery();
     const data = await apiFetch(`/entries/all${q}`, { method: "GET" });
     renderEntries(data.entries || []);
-    setOut(qs("entriesOut"), data);
+    setOut(qs("entriesOut"), `${(data.entries || []).length} registro(s) encontrado(s).`);
   } catch (err) {
     setOut(qs("entriesOut"), err.message);
     toastError(`${err.message}`);
@@ -959,7 +1573,12 @@ qs("btnToggleActive").addEventListener("click", async () => {
       },
     );
 
-    setOut(out, data);
+    setOut(
+      out,
+      is_active
+        ? `Usuário #${userId} ativado com sucesso.`
+        : `Usuário #${userId} desativado com sucesso.`,
+    );
     toastSuccess(is_active ? "Usuario ativado" : "Usuario desativado");
     await loadUsersTable();
   } catch (err) {
@@ -979,6 +1598,46 @@ qs("btnListUsers").addEventListener("click", async () => {
 
 qs("btnLoadAlerts").addEventListener("click", loadAlerts);
 qs("btnClearAlerts").addEventListener("click", clearAlertsTable);
+
+qs("btnLoadForgottenRequests").addEventListener("click", () => {
+  loadForgottenRequests({ preserveSelection: false });
+});
+
+qs("btnClearForgottenFilters").addEventListener("click", () => {
+  [
+    "forgottenStatusFilter",
+    "forgottenCollaboratorFilter",
+    "forgottenDateFrom",
+    "forgottenDateTo",
+    "forgottenCreatedFrom",
+    "forgottenCreatedTo",
+  ].forEach((id) => {
+    const el = qs(id);
+    if (el) el.value = "";
+  });
+
+  loadForgottenRequests({ preserveSelection: false }).catch(() => {});
+});
+
+qs("forgottenTable").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-open-forgotten]");
+  if (!btn) return;
+
+  const requestId = btn.getAttribute("data-open-forgotten");
+  await loadForgottenRequestDetail(requestId);
+});
+
+qs("btnApproveForgotten").addEventListener("click", async () => {
+  await reviewForgottenRequest("APPROVED");
+});
+
+qs("btnRejectForgotten").addEventListener("click", async () => {
+  await reviewForgottenRequest("REJECTED");
+});
+
+qs("btnDownloadForgottenPdf").addEventListener("click", async () => {
+  await downloadForgottenApprovalPdf();
+});
 
 qs("alertsTable").addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-resolve]");
@@ -1000,48 +1659,12 @@ qs("alertsTable").addEventListener("click", async (e) => {
       },
     );
 
-    setOut(qs("alertsOut"), data);
+    setOut(qs("alertsOut"), `Alerta #${alertId} resolvido com sucesso.`);
     await loadAlerts();
     toastSuccess(`Alerta #${alertId} resolvido`);
   } catch (err) {
     setOut(qs("alertsOut"), err.message);
     toastError(`Erro ao resolver alerta: ${err.message}`);
-  }
-});
-
-qs("btnAssignSO").addEventListener("click", async () => {
-  const out = qs("soAdminOut");
-  setOut(out, "Atribuindo OS...");
-
-  try {
-    const soId = Number(qs("assignSoId").value);
-    const userId = Number(qs("assignUserId").value);
-
-    if (!Number.isFinite(soId) || soId <= 0) {
-      setOut(out, "Informe um OS ID vÃ¡lido.");
-      toastError("Informe um OS ID valido");
-      return;
-    }
-    if (!Number.isFinite(userId) || userId <= 0) {
-      setOut(out, "Informe um user_id vÃ¡lido.");
-      toastError("Informe um user_id valido");
-      return;
-    }
-
-    const data = await apiFetch(
-      `/admin/service-orders/${encodeURIComponent(soId)}/assign`,
-      {
-        method: "POST",
-        body: JSON.stringify({ user_id: userId }),
-      },
-    );
-
-    // setOut(qs("soAdminJson"), data);
-    setOut(out, `OK - OS #${soId} atribuída ao user_id ${userId}`);
-    toastSuccess(`OS #${soId} atribuida com sucesso`);
-  } catch (err) {
-    setOut(out, err.message);
-    toastError(`Erro ao atribuir OS: ${err.message}`);
   }
 });
 
@@ -1052,6 +1675,9 @@ async function refreshRoleUI() {
 
   if (!token) {
     pill.textContent = "Deslogado";
+    isAdminSession = false;
+    setConsultationAdminVisibility(false);
+    setAdminOnlyNavigationVisibility(false);
     document
       .querySelectorAll('[data-view^="view-admin"]')
       .forEach((b) => (b.disabled = true));
@@ -1061,14 +1687,21 @@ async function refreshRoleUI() {
   try {
     const me = await apiFetch("/me", { method: "GET" });
     const role = me.user.role;
-    pill.textContent = `${me.user.name} - ${role}`;
+    pill.textContent = `${me.user.id}`;
 
     const isAdmin = role === "ADMIN";
+    isAdminSession = isAdmin;
+    setConsultationAdminVisibility(isAdmin);
+    setAdminOnlyNavigationVisibility(isAdmin);
     document
       .querySelectorAll('[data-view^="view-admin"]')
       .forEach((b) => (b.disabled = !isAdmin));
   } catch {
     pill.textContent = "Sessão inválida";
+    isAdminSession = false;
+    clearForgottenDetail();
+    setConsultationAdminVisibility(false);
+    setAdminOnlyNavigationVisibility(false);
     document
       .querySelectorAll('[data-view^="view-admin"]')
       .forEach((b) => (b.disabled = true));
@@ -1077,6 +1710,7 @@ async function refreshRoleUI() {
 
 qs("btnClearEntries").addEventListener("click", clearEntriesTable);
 
+clearForgottenDetail();
 updateAuthUI();
 applyAuthGate();
 if (typeof window.routeToViewId === "function") {
@@ -1085,7 +1719,7 @@ if (typeof window.routeToViewId === "function") {
   setActiveView(viewId, { syncRoute: false });
   navigateToRoute(window.viewIdToRoute(viewId), { replace: true });
 } else {
-  setActiveView("view-dashboard");
+  setActiveView("view-ponto");
 }
 refreshRoleUI();
 startClock();

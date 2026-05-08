@@ -1,14 +1,11 @@
 const { db } = require("../db/database");
+const { getLatestTimeEntry } = require("./timeEntries");
 
 const MAX_HOURS_MS = 12 * 60 * 60 * 1000;
 const TOL_HOURS_MS = 13 * 60 * 60 * 1000;
 
 async function ensureInconsistencyAlert(userId, nowIso) {
-  const lastResult = await db.query(
-    "SELECT id, type, occurred_at FROM times_entries WHERE user_id = $1 ORDER BY id DESC LIMIT 1",
-    [userId],
-  );
-  const last = lastResult.rows[0];
+  const last = await getLatestTimeEntry(userId);
 
   if (!last || last.type !== "IN") return { inconsistent: false };
 
