@@ -1,4 +1,4 @@
-const fs = require("fs");
+﻿const fs = require("fs");
 const express = require("express");
 const { z } = require("zod");
 const { authRequired } = require("../middlewares/auth");
@@ -251,7 +251,8 @@ router.post("/missed-punch-requests", authRequired, async (req, res) => {
         clientIp,
       ],
     );
-  } catch {
+  } catch (error) {
+    console.error("[me-forgotten-save-error]", error);
     if (signaturePath) {
       try {
         fs.unlinkSync(resolveStoredPath(signaturePath));
@@ -267,3 +268,4 @@ router.post("/missed-punch-requests", authRequired, async (req, res) => {
 });
 
 module.exports = router;
+

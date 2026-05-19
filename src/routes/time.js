@@ -1,4 +1,4 @@
-const fs = require("fs");
+﻿const fs = require("fs");
 const express = require("express");
 const { z } = require("zod");
 const { db } = require("../db/database");
@@ -287,6 +287,7 @@ router.post("/forgotten", authRequired, async (req, res) => {
       ],
     );
   } catch (error) {
+    console.error("[forgotten-save-error]", error);
     if (signaturePath) {
       try {
         fs.unlinkSync(resolveStoredPath(signaturePath));
@@ -297,7 +298,7 @@ router.post("/forgotten", authRequired, async (req, res) => {
 
   return res.status(201).json({
     success: true,
-    message: "Solicitação recebida com sucesso",
+    message: "SolicitaÃ§Ã£o recebida com sucesso",
   });
 });
 
@@ -317,3 +318,4 @@ router.get("/status", authRequired, async (req, res) => {
 });
 
 module.exports = router;
+
